@@ -1,0 +1,2 @@
+./venv_bayespilot/bin/python -m pip install <package>
+./venv_bayespilot/bin/python your_script.py
