@@ -7,10 +7,12 @@ import numpy as np
 import pandas as pd
 import pymc as pm
 
-from bayespilot.planning.model_spec import ModelSpec
+from training.planning.model_spec import ModelSpec
 
 
-def _prepare_design_matrix(df: pd.DataFrame, target: str, predictors: list[str]) -> Tuple[pd.DataFrame, pd.Series]:
+def _prepare_design_matrix(
+    df: pd.DataFrame, target: str, predictors: list[str]
+) -> Tuple[pd.DataFrame, pd.Series]:
     X = df[predictors].copy()
     X = pd.get_dummies(X, drop_first=True)
     y = df[target].copy()

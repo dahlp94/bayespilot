@@ -1,0 +1,22 @@
+data:
+  path: datasets/churn.csv
+  target: churn
+
+split:
+  test_size: 0.2
+  random_seed: 42
+  stratify: true
+
+model:
+  type: logistic_regression
+  max_iter: 1000
+
+thresholds:
+  low: 0.3
+  high: 0.7
+
+artifacts:
+  pipeline_path: models/artifacts/churn_pipeline.pkl
+
+mlflow:
+  experiment_name: BayesPilot-Stage1

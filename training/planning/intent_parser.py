@@ -1,10 +1,13 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 
 @dataclass
 class ParsedIntent:
     intent: str
     explanation: str
+
 
 def parse_intent(question: str) -> ParsedIntent:
     q = question.lower().strip()

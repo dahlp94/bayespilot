@@ -1,7 +1,10 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Dict, List
+
 import pandas as pd
+
 
 @dataclass
 class DatasetProfile:
@@ -11,6 +14,7 @@ class DatasetProfile:
     categorical_columns: List[str]
     missing_counts: Dict[str, int]
     candidate_targets: List[str]
+
 
 def analyze_dataset(df: pd.DataFrame) -> DatasetProfile:
     numeric_columns = df.select_dtypes(include=["number"]).columns.tolist()

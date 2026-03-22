@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 import pandas as pd
-from bayespilot.planning.model_spec import ModelType, TargetType
+
+from training.planning.model_spec import ModelType, TargetType
+
 
 def infer_target_type(series: pd.Series) -> TargetType:
     unique_values = series.dropna().unique()
@@ -8,6 +11,7 @@ def infer_target_type(series: pd.Series) -> TargetType:
         return "binary"
 
     return "continuous"
+
 
 def select_model_type(target_series: pd.Series) -> ModelType:
     target_type = infer_target_type(target_series)

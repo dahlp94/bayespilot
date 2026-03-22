@@ -4,6 +4,7 @@ from typing import List, Literal
 ModelType = Literal["bayesian_linear_regression", "bayesian_logistic_regression"]
 TargetType = Literal["continuous", "binary"]
 
+
 @dataclass
 class ModelSpec:
     target: str

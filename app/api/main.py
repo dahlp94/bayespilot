@@ -1,32 +1,46 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from __future__ import annotations
+
 import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+from time import perf_counter
+
 import joblib
 import pandas as pd
+from fastapi import FastAPI
+from pydantic import BaseModel
 
 from app.monitoring.prediction_logger import log_prediction
-from app.monitoring.latency import now, elapsed_ms
+from app.services.decision import make_decision
 
-app = FastAPI()
-
-MODEL_PATH = "models/artifacts/logistic.pkl"
-FEATURES_PATH = "models/artifacts/logistic_features.pkl"
-
-if not os.path.exists(MODEL_PATH):
-    raise RuntimeError("Missing model artifact. Run: python experiments/train_baseline.py")
-
-if not os.path.exists(FEATURES_PATH):
-    raise RuntimeError("Missing feature artifact. Run: python experiments/train_baseline.py")
-
-model = joblib.load(MODEL_PATH)
-feature_names = joblib.load(FEATURES_PATH)
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_PIPELINE = _PROJECT_ROOT / "models" / "artifacts" / "churn_pipeline.pkl"
 
 
-class RequestData(BaseModel):
+def _pipeline_path() -> Path:
+    override = os.environ.get("BAYESPILOT_MODEL_PATH")
+    return Path(override) if override else _DEFAULT_PIPELINE
+
+
+pipeline = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global pipeline
+    path = _pipeline_path()
+    pipeline = joblib.load(path)
+    yield
+
+
+app = FastAPI(title="BayesPilot API", lifespan=lifespan)
+
+
+class PredictionRequest(BaseModel):
     usage: float
     bill: float
     support_calls: int
-    region: str | None = None
+    region: str
 
 
 @app.get("/")
@@ -38,58 +52,30 @@ def root():
 def health():
     return {
         "status": "ok",
-        "model_loaded": True,
-        "n_expected_features": len(feature_names),
-        "expected_features": feature_names,
-    }
-
-
-@app.get("/model-info")
-def model_info():
-    return {
-        "model_name": "logistic_regression_baseline",
-        "artifact_path": MODEL_PATH,
-        "feature_count": len(feature_names),
-        "feature_names": feature_names,
+        "pipeline_loaded": pipeline is not None,
+        "artifact_path": str(_pipeline_path()),
     }
 
 
 @app.post("/predict")
-def predict(data: RequestData):
-    start_time = now()
+def predict(request: PredictionRequest):
+    start = perf_counter()
 
-    try:
-        raw = pd.DataFrame([data.model_dump()])
-        X = pd.get_dummies(raw, drop_first=True)
-        X = X.reindex(columns=feature_names, fill_value=0)
+    payload = request.model_dump()
+    X = pd.DataFrame([payload])
 
-        prob = float(model.predict_proba(X)[0][1])
+    probability = float(pipeline.predict_proba(X)[0, 1])
+    decision = make_decision(probability)
 
-        if prob < 0.3:
-            decision = "low_risk_monitor"
-        elif prob < 0.7:
-            decision = "medium_risk_review"
-        else:
-            decision = "high_risk_escalate"
+    latency_ms = (perf_counter() - start) * 1000.0
 
-        response = {
-            "input": data.model_dump(),
-            "aligned_features": X.to_dict(orient="records")[0],
-            "probability": prob,
-            "decision": decision,
-            "latency_ms": elapsed_ms(start_time),
-        }
+    response = {
+        "input": payload,
+        "probability": probability,
+        "decision": decision,
+        "latency_ms": round(latency_ms, 3),
+    }
 
-        log_prediction(data.model_dump(), response)
+    log_prediction(payload, response)
 
-        return response
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error": str(e),
-                "received_input": data.model_dump(),
-                "expected_features": feature_names,
-            },
-        )
+    return response

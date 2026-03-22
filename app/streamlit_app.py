@@ -1,23 +1,23 @@
 from __future__ import annotations
 
-import pandas as pd
-import streamlit as st
-import arviz as az
-import matplotlib.pyplot as plt
-
 import os
 import sys
 
-# Add project root (parent of app/) to Python path
+import arviz as az
+import matplotlib.pyplot as plt
+import pandas as pd
+import streamlit as st
+
+# Project root on path
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
-from bayespilot.profiling.dataset_analyzer import analyze_dataset
-from bayespilot.planning.intent_parser import parse_intent
-from bayespilot.planning.model_selector import infer_target_type, select_model_type
-from bayespilot.planning.model_spec import ModelSpec
-from bayespilot.inference.run_inference import run_bayesian_inference, summarize_posterior
 
+from app.analysis.dataset_analyzer import analyze_dataset
+from training.inference import run_bayesian_inference, summarize_posterior
+from training.planning.intent_parser import parse_intent
+from training.planning.model_selector import infer_target_type, select_model_type
+from training.planning.model_spec import ModelSpec
 
 st.set_page_config(page_title="BayesPilot", layout="wide")
 
@@ -44,11 +44,13 @@ if uploaded_file is not None:
     target = st.selectbox("Select target variable", options=profile.candidate_targets)
 
     predictor_options = [col for col in df.columns if col != target]
-    predictors = st.multiselect("Select predictor variables", options=predictor_options, default=predictor_options[:3])
+    predictors = st.multiselect(
+        "Select predictor variables", options=predictor_options, default=predictor_options[:3]
+    )
 
     question = st.text_area(
         "Ask an analytical question",
-        value=f"Which variables most influence {target}?"
+        value=f"Which variables most influence {target}?",
     )
 
     if st.button("Run Bayesian Analysis"):
