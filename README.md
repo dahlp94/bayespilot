@@ -1,42 +1,6 @@
-# BayesPilot — Stage 1
+# BayesPilot
 
-## Target layout
-
-```text
-bayespilot/
-├── app/
-│   ├── api/
-│   │   └── main.py
-│   ├── monitoring/
-│   │   ├── latency.py
-│   │   └── prediction_logger.py
-│   └── services/
-│       └── decision.py
-├── configs/
-│   └── training_config.yaml
-├── datasets/
-│   └── churn.csv
-├── models/
-│   └── artifacts/
-│       └── churn_pipeline.pkl   # produced by training
-├── training/
-│   ├── pipeline.py
-│   ├── train.py
-│   └── evaluate.py
-├── scripts/
-│   └── generate_churn_data.py
-├── tests/
-│   ├── test_pipeline.py
-│   ├── test_decision.py
-│   └── test_api.py
-├── experiments/
-│   └── old_train_baseline.py
-├── logs/
-├── requirements.txt
-└── README.md
-```
-
-Optional (Bayesian / UI): `app/streamlit_app.py`, `app/analysis/`, `training/inference.py`, `training/planning/`, `experiments/train_bayesian.py`.
+Reproducible ML service with **Stage 1** (single baseline pipeline) and **Stage 2** (multi-model comparison, calibration, threshold sweep, deployment selection).
 
 ## Setup
 
@@ -46,40 +10,50 @@ source venv_bayespilot/bin/activate
 pip install -r requirements.txt
 ```
 
-## Stage 1 end-to-end
+---
 
-Run from the **project root** (so paths like `datasets/churn.csv` resolve).
-
-### 1. Generate data
+## Stage 1 — Baseline training
 
 ```bash
-python scripts/generate_churn_data.py
-```
-
-### 2. Train pipeline
-
-```bash
+python scripts/generate_churn_data.py   # if needed
 python -m training.train
 ```
 
-Writes `models/artifacts/churn_pipeline.pkl` (path from `configs/training_config.yaml`).  
-MLflow experiment: `BayesPilot-Stage1`.
+- Config: `configs/training_config.yaml`
+- Artifact: `models/artifacts/churn_pipeline.pkl`
+- MLflow experiment: `BayesPilot-Stage1`
 
-### 3. Tests
+---
+
+## Stage 2 — Experimentation & model selection
+
+**Goal:** Train multiple candidates through one preprocessing interface, compare fairly, calibrate probabilities, sweep thresholds, and **deploy one** model as `deployed_pipeline.pkl`.
 
 ```bash
-pytest
+python -m training.train_stage2
 ```
 
-`tests/test_pipeline.py` expects the artifact from step 2.
+- Config: `configs/stage2_model_config.yaml`
+- Per-model artifacts: `models/artifacts/{logistic_regression,random_forest,gradient_boosting}_pipeline.pkl`
+- **Production artifact:** `models/artifacts/deployed_pipeline.pkl` (copy of the selected winner)
+- Reports: `reports/stage2/` (`metrics_summary.csv`, `model_comparison.csv`, `threshold_summary.csv`, `selected_model.json`, `figures/*.png`)
+- MLflow experiment: `BayesPilot-Stage2`
 
-### 4. API
+### Selection rationale
+
+After Stage 2, read `reports/stage2/selected_model.json` for the chosen model and written justification (AUC, F1, latency, interpretability).
+
+---
+
+## API
+
+The API loads **`models/artifacts/deployed_pipeline.pkl`** (run Stage 2 after training, or set `BAYESPILOT_MODEL_PATH`).
 
 ```bash
 uvicorn app.api.main:app --reload
 ```
 
-### 5. Example prediction body
+Example body:
 
 ```json
 {
@@ -90,17 +64,20 @@ uvicorn app.api.main:app --reload
 }
 ```
 
-Response includes `probability`, `decision`, and `latency_ms`.
+- **Decision** logic: `app/services/decision.py` (`make_decision`)
+- **Inference:** Raw JSON → `DataFrame` → `pipeline.predict_proba` (no manual `get_dummies` in the API)
 
-## Configuration
+---
 
-Single source of truth: `configs/training_config.yaml` (data path, split, `max_iter`, thresholds for future use, artifact path, MLflow experiment name).
+## Tests
 
-## API notes
+```bash
+pytest
+```
 
-- Loads the **full sklearn pipeline** (preprocessing + model); no manual `get_dummies` or column alignment in the API.
-- **Decision** logic lives in `app/services/decision.py` (`make_decision`).
-- Startup uses FastAPI **lifespan** (not deprecated `on_event`) so `TestClient` loads the artifact reliably in tests.
+`tests/test_pipeline.py` prefers `deployed_pipeline.pkl` if present, else `churn_pipeline.pkl`.
+
+---
 
 ## Legacy
 
@@ -108,7 +85,7 @@ Single source of truth: `configs/training_config.yaml` (data path, split, `max_i
 python experiments/old_train_baseline.py
 ```
 
-Delegates to `training.train` (deprecated wrapper; prefer `python -m training.train`).
+Delegates to `training.train`.
 
 ## Streamlit (optional)
 

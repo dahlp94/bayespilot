@@ -14,7 +14,7 @@ from app.monitoring.prediction_logger import log_prediction
 from app.services.decision import make_decision
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_PIPELINE = _PROJECT_ROOT / "models" / "artifacts" / "churn_pipeline.pkl"
+_DEFAULT_PIPELINE = _PROJECT_ROOT / "models" / "artifacts" / "deployed_pipeline.pkl"
 
 
 def _pipeline_path() -> Path:

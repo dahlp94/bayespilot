@@ -1,15 +1,15 @@
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
 
-def build_pipeline(
-    numeric_features,
-    categorical_features,
-    max_iter: int = 1000,
-):
+def build_pipeline(numeric_features, categorical_features, estimator):
+    """
+    Build a sklearn Pipeline with shared preprocessing and a pluggable final estimator.
+
+    Same preprocessing for all Stage 2 candidates; only `estimator` differs.
+    """
     numeric_transformer = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
@@ -30,13 +30,9 @@ def build_pipeline(
         ]
     )
 
-    model = LogisticRegression(max_iter=max_iter)
-
-    pipeline = Pipeline(
+    return Pipeline(
         steps=[
             ("preprocessor", preprocessor),
-            ("model", model),
+            ("model", estimator),
         ]
     )
-
-    return pipeline

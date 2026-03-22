@@ -16,6 +16,7 @@ from sklearn.model_selection import train_test_split
 
 from training.evaluate import compute_classification_metrics
 from training.pipeline import build_pipeline
+from training.registry import get_estimator
 
 
 def load_config(config_path: str) -> dict:
@@ -37,7 +38,12 @@ def main(config_path: str = "configs/training_config.yaml") -> None:
     random_seed = config["split"]["random_seed"]
     stratify_enabled = config["split"]["stratify"]
 
-    max_iter = config["model"]["max_iter"]
+    models_block = {
+        "logistic_regression": {"max_iter": config["model"]["max_iter"]},
+        "random_forest": {},
+        "gradient_boosting": {},
+    }
+    estimator = get_estimator(config["model"]["type"], models_block)
     pipeline_path = _ROOT / config["artifacts"]["pipeline_path"]
     experiment_name = config["mlflow"]["experiment_name"]
 
@@ -62,8 +68,9 @@ def main(config_path: str = "configs/training_config.yaml") -> None:
     pipeline = build_pipeline(
         numeric_features=numeric_features,
         categorical_features=categorical_features,
-        max_iter=max_iter,
+        estimator=estimator,
     )
+    max_iter = int(config["model"]["max_iter"])
 
     mlflow.set_experiment(experiment_name)
 
