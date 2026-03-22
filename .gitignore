@@ -1,12 +1,32 @@
 # Virtual environments
 venv/
 venv_bayespilot/
+.venv/
 .env
+
 # Python cache
 __pycache__/
 *.pyc
-.DS_Store
-.env
-.streamlit/
-.ipynb_checkpoints/
 .pytest_cache/
+
+# System files
+.DS_Store
+
+# Streamlit
+.streamlit/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data files
+*.csv
+
+# MLflow
+mlruns/
+mlflow.db
+
+# Model artifacts
+models/artifacts/
+
+# Logs
+logs/
