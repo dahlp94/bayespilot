@@ -5,6 +5,7 @@ import joblib
 import pandas as pd
 
 from app.monitoring.prediction_logger import log_prediction
+from app.monitoring.latency import now, elapsed_ms
 
 app = FastAPI()
 
@@ -55,6 +56,8 @@ def model_info():
 
 @app.post("/predict")
 def predict(data: RequestData):
+    start_time = now()
+
     try:
         raw = pd.DataFrame([data.model_dump()])
         X = pd.get_dummies(raw, drop_first=True)
@@ -74,6 +77,7 @@ def predict(data: RequestData):
             "aligned_features": X.to_dict(orient="records")[0],
             "probability": prob,
             "decision": decision,
+            "latency_ms": elapsed_ms(start_time),
         }
 
         log_prediction(data.model_dump(), response)
