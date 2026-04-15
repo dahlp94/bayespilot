@@ -34,8 +34,11 @@ from training.pipeline import build_pipeline
 from training.registry import get_estimator
 from training.thresholds import sweep_thresholds
 
+DEFAULT_CONFIG_PATH = "configs/stage2_model_config.yaml"
+
 
 def load_config(path: Path) -> dict:
+    """Load YAML config file for Stage 2 model comparison."""
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
@@ -52,15 +55,21 @@ def measure_latency_ms(model, X_sample: pd.DataFrame, n_warmup: int = 20, n_iter
     return float(np.median(times) * 1000.0)
 
 
-def main(config_path: str = "configs/stage2_model_config.yaml") -> None:
-    os.chdir(_ROOT)
+def _resolve_config_path(config_path: str) -> Path:
     cfg_path = Path(config_path)
     if not cfg_path.is_absolute():
         cfg_path = _ROOT / cfg_path
-    config = load_config(cfg_path)
+    return cfg_path
+
+
+def main(config_path: str = DEFAULT_CONFIG_PATH) -> None:
+    """Run Stage 2 comparison, selection, and deployment artifact promotion."""
+    os.chdir(_ROOT)
+    resolved_config_path = _resolve_config_path(config_path)
+    config = load_config(resolved_config_path)
 
     data_path = _ROOT / config["data"]["path"]
-    target = config["data"]["target"]
+    target_column = config["data"]["target"]
     test_size = config["split"]["test_size"]
     random_seed = config["split"]["random_seed"]
     stratify_enabled = config["split"]["stratify"]
@@ -73,9 +82,9 @@ def main(config_path: str = "configs/stage2_model_config.yaml") -> None:
     reports_dir.mkdir(parents=True, exist_ok=True)
     figures_dir.mkdir(parents=True, exist_ok=True)
 
-    df = pd.read_csv(data_path)
-    X = df.drop(columns=[target])
-    y = df[target]
+    dataset = pd.read_csv(data_path)
+    X = dataset.drop(columns=[target_column])
+    y = dataset[target_column]
 
     numeric_features = X.select_dtypes(include=["number"]).columns.tolist()
     categorical_features = X.select_dtypes(exclude=["number"]).columns.tolist()
@@ -101,6 +110,7 @@ def main(config_path: str = "configs/stage2_model_config.yaml") -> None:
     comparison_rows: list[dict] = []
     metrics_rows: list[dict] = []
     threshold_parts: list[pd.DataFrame] = []
+    threshold_business_rows: list[dict] = []
 
     mlflow.set_experiment(config["mlflow"]["experiment_name"])
 
@@ -138,7 +148,13 @@ def main(config_path: str = "configs/stage2_model_config.yaml") -> None:
                     "latency_ms": latency_ms,
                 }
                 comparison_rows.append(row)
-                metrics_rows.append({**row, **cm, "mean_abs_calibration_error": calib["mean_abs_calibration_error"]})
+                metrics_rows.append(
+                    {
+                        **row,
+                        **cm,
+                        "mean_abs_calibration_error": calib["mean_abs_calibration_error"],
+                    }
+                )
 
                 mlflow.log_param("model", model_name)
                 mlflow.log_param("calibration", cal_enabled)
@@ -171,17 +187,46 @@ def main(config_path: str = "configs/stage2_model_config.yaml") -> None:
                 mlflow.log_artifact(str(cm_path))
 
                 if sweep_cfg.get("enabled", False):
+                    business_cfg = thr_cfg.get("business", {})
                     sweep_df = sweep_thresholds(
                         y_test,
                         y_prob,
                         start=float(sweep_cfg["start"]),
                         end=float(sweep_cfg["end"]),
                         step=float(sweep_cfg["step"]),
+                        intervention_cost=float(business_cfg.get("intervention_cost", 50.0)),
+                        churn_loss=float(business_cfg.get("churn_loss", 500.0)),
+                        intervention_success_rate=float(
+                            business_cfg.get("intervention_success_rate", 0.3)
+                        ),
                     )
                     sweep_df.insert(0, "model", model_name)
                     threshold_parts.append(sweep_df)
 
+                    best_idx = sweep_df["expected_net_benefit"].idxmax()
+                    best_row = sweep_df.loc[best_idx]
+                    threshold_business_rows.append(
+                        {
+                            "model_name": model_name,
+                            "threshold": float(best_row["threshold"]),
+                            "expected_net_benefit": float(best_row["expected_net_benefit"]),
+                            "number_targeted": int(best_row["number_targeted"]),
+                            "intervention_cost_total": float(best_row["intervention_cost_total"]),
+                            "expected_loss_prevented": float(best_row["expected_loss_prevented"]),
+                            "best_threshold": float(best_row["threshold"]),
+                            "max_expected_net_benefit": float(
+                                best_row["expected_net_benefit"]
+                            ),
+                        }
+                    )
+
         comparison_df = pd.DataFrame(comparison_rows)
+        if threshold_business_rows:
+            threshold_business_df = pd.DataFrame(threshold_business_rows)
+            best_cols = threshold_business_df[
+                ["model_name", "best_threshold", "max_expected_net_benefit"]
+            ].rename(columns={"model_name": "model"})
+            comparison_df = comparison_df.merge(best_cols, on="model", how="left")
         comparison_df = add_interpretability(comparison_df)
         ranked = rank_models(comparison_df)
 
@@ -196,18 +241,38 @@ def main(config_path: str = "configs/stage2_model_config.yaml") -> None:
             thresh_df = pd.concat(threshold_parts, ignore_index=True)
             thresh_path = reports_dir / "threshold_summary.csv"
             thresh_df.to_csv(thresh_path, index=False)
+        if threshold_business_rows:
+            threshold_business_df = pd.DataFrame(threshold_business_rows)
+            threshold_business_path = reports_dir / "threshold_business_summary.csv"
+            threshold_business_df[
+                [
+                    "model_name",
+                    "threshold",
+                    "expected_net_benefit",
+                    "number_targeted",
+                    "intervention_cost_total",
+                    "expected_loss_prevented",
+                ]
+            ].to_csv(threshold_business_path, index=False)
 
         selection = select_deployment_candidate(ranked)
         selection["artifact_candidates"] = {
             m: str(model_dir / f"{m}_pipeline.pkl") for m in candidates
         }
         selection["deployed_path"] = str(deployed_path)
+        if selection.get("best_threshold") is not None:
+            mlflow.log_metric("selected_best_threshold", float(selection["best_threshold"]))
+        if selection.get("max_expected_net_benefit") is not None:
+            mlflow.log_metric(
+                "selected_max_expected_net_benefit",
+                float(selection["max_expected_net_benefit"]),
+            )
 
         selected_path = reports_dir / "selected_model.json"
         with open(selected_path, "w", encoding="utf-8") as f:
             json.dump(selection, f, indent=2)
 
-        winner_name = selection["model_name"]
+        winner_name = selection["selected_model"]
         winner_artifact = model_dir / f"{winner_name}_pipeline.pkl"
         shutil.copy2(winner_artifact, deployed_path)
 
