@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 
@@ -93,3 +94,72 @@ def select_deployment_candidate(ranked_df: pd.DataFrame) -> dict[str, Any]:
             "interpretability": float(top.get("interpretability", 0.0)),
         },
     }
+
+
+def _unwrap_pipeline(model: Any):
+    """Return fitted pipeline from raw or calibrated model when possible."""
+    if hasattr(model, "named_steps"):
+        return model
+    if hasattr(model, "estimator") and hasattr(model.estimator, "named_steps"):
+        return model.estimator
+    calibrated_list = getattr(model, "calibrated_classifiers_", None)
+    if calibrated_list:
+        fitted_estimator = getattr(calibrated_list[0], "estimator", None)
+        if fitted_estimator is not None and hasattr(fitted_estimator, "named_steps"):
+            return fitted_estimator
+    return None
+
+
+def _feature_names_from_preprocessor(preprocessor: Any, n_features: int) -> list[str]:
+    """Get transformed feature names; use index fallback if unavailable."""
+    try:
+        names = preprocessor.get_feature_names_out()
+        return [str(name) for name in names]
+    except Exception:
+        return [f"feature_{i}" for i in range(n_features)]
+
+
+def extract_feature_importance(
+    model_name: str,
+    trained_model: Any,
+    top_n: int = 10,
+) -> pd.DataFrame:
+    """
+    Extract top feature importance for supported estimators inside a pipeline.
+
+    Supports:
+    - linear models with `coef_` (absolute value)
+    - tree-based models with `feature_importances_`
+    """
+    pipeline = _unwrap_pipeline(trained_model)
+    if pipeline is None:
+        return pd.DataFrame(columns=["feature_name", "importance", "model_name"])
+
+    preprocessor = pipeline.named_steps.get("preprocessor")
+    estimator = pipeline.named_steps.get("model")
+    if preprocessor is None or estimator is None:
+        return pd.DataFrame(columns=["feature_name", "importance", "model_name"])
+
+    importances = None
+    if hasattr(estimator, "coef_"):
+        coef = np.asarray(estimator.coef_)
+        if coef.ndim == 2:
+            coef = coef[0]
+        importances = np.abs(coef)
+    elif hasattr(estimator, "feature_importances_"):
+        importances = np.asarray(estimator.feature_importances_)
+
+    if importances is None:
+        return pd.DataFrame(columns=["feature_name", "importance", "model_name"])
+
+    feature_names = _feature_names_from_preprocessor(preprocessor, len(importances))
+    n = min(len(feature_names), len(importances))
+    out = pd.DataFrame(
+        {
+            "feature_name": feature_names[:n],
+            "importance": importances[:n],
+            "model_name": model_name,
+        }
+    )
+    out = out.sort_values("importance", ascending=False).head(top_n).reset_index(drop=True)
+    return out

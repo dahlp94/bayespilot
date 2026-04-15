@@ -19,7 +19,12 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from training.calibration import calibrate_pipeline
-from training.compare import add_interpretability, rank_models, select_deployment_candidate
+from training.compare import (
+    add_interpretability,
+    extract_feature_importance,
+    rank_models,
+    select_deployment_candidate,
+)
 from training.evaluate import (
     calibration_summary,
     compute_classification_metrics,
@@ -111,6 +116,7 @@ def main(config_path: str = DEFAULT_CONFIG_PATH) -> None:
     metrics_rows: list[dict] = []
     threshold_parts: list[pd.DataFrame] = []
     threshold_business_rows: list[dict] = []
+    feature_importance_parts: list[pd.DataFrame] = []
 
     mlflow.set_experiment(config["mlflow"]["experiment_name"])
 
@@ -155,6 +161,9 @@ def main(config_path: str = DEFAULT_CONFIG_PATH) -> None:
                         "mean_abs_calibration_error": calib["mean_abs_calibration_error"],
                     }
                 )
+                fi_df = extract_feature_importance(model_name, final_model, top_n=10)
+                if not fi_df.empty:
+                    feature_importance_parts.append(fi_df)
 
                 mlflow.log_param("model", model_name)
                 mlflow.log_param("calibration", cal_enabled)
@@ -237,6 +246,11 @@ def main(config_path: str = DEFAULT_CONFIG_PATH) -> None:
         comparison_out = reports_dir / "model_comparison.csv"
         ranked.to_csv(comparison_out, index=False)
 
+        if feature_importance_parts:
+            feature_importance_df = pd.concat(feature_importance_parts, ignore_index=True)
+            feature_importance_path = reports_dir / "feature_importance.csv"
+            feature_importance_df.to_csv(feature_importance_path, index=False)
+
         if threshold_parts:
             thresh_df = pd.concat(threshold_parts, ignore_index=True)
             thresh_path = reports_dir / "threshold_summary.csv"
@@ -279,6 +293,8 @@ def main(config_path: str = DEFAULT_CONFIG_PATH) -> None:
         print("Stage 2 complete.")
         print(f"Metrics summary: {metrics_path}")
         print(f"Model comparison: {comparison_out}")
+        if feature_importance_parts:
+            print(f"Feature importance: {feature_importance_path}")
         print(f"Selected model: {winner_name}")
         print(f"Deployed artifact: {deployed_path}")
 
