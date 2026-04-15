@@ -18,21 +18,30 @@ from training.evaluate import compute_classification_metrics
 from training.pipeline import build_pipeline
 from training.registry import get_estimator
 
+DEFAULT_CONFIG_PATH = "configs/training_config.yaml"
+
 
 def load_config(config_path: str) -> dict:
+    """Load YAML config file for Stage 1 training."""
     with open(config_path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
-def main(config_path: str = "configs/training_config.yaml") -> None:
+def _resolve_config_path(config_path: str) -> Path:
+    cfg_path = Path(config_path)
+    if not cfg_path.is_absolute():
+        cfg_path = _ROOT / cfg_path
+    return cfg_path
+
+
+def main(config_path: str = DEFAULT_CONFIG_PATH) -> None:
+    """Run Stage 1 baseline training and persist a pipeline artifact."""
     os.chdir(_ROOT)
-    cfg = Path(config_path)
-    if not cfg.is_absolute():
-        cfg = _ROOT / cfg
-    config = load_config(str(cfg))
+    resolved_config_path = _resolve_config_path(config_path)
+    config = load_config(str(resolved_config_path))
 
     data_path = _ROOT / config["data"]["path"]
-    target = config["data"]["target"]
+    target_column = config["data"]["target"]
 
     test_size = config["split"]["test_size"]
     random_seed = config["split"]["random_seed"]
@@ -47,22 +56,22 @@ def main(config_path: str = "configs/training_config.yaml") -> None:
     pipeline_path = _ROOT / config["artifacts"]["pipeline_path"]
     experiment_name = config["mlflow"]["experiment_name"]
 
-    df = pd.read_csv(data_path)
+    dataset = pd.read_csv(data_path)
 
-    X = df.drop(columns=[target])
-    y = df[target]
+    features = dataset.drop(columns=[target_column])
+    labels = dataset[target_column]
 
-    numeric_features = X.select_dtypes(include=["int64", "float64"]).columns.tolist()
-    categorical_features = X.select_dtypes(include=["object", "category", "bool"]).columns.tolist()
+    numeric_features = features.select_dtypes(include=["int64", "float64"]).columns.tolist()
+    categorical_features = features.select_dtypes(include=["object", "category", "bool"]).columns.tolist()
 
-    stratify_y = y if stratify_enabled else None
+    stratify_labels = labels if stratify_enabled else None
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
+        features,
+        labels,
         test_size=test_size,
         random_state=random_seed,
-        stratify=stratify_y,
+        stratify=stratify_labels,
     )
 
     pipeline = build_pipeline(
