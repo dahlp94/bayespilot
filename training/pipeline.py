@@ -4,7 +4,11 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
 
-def build_pipeline(numeric_features, categorical_features, estimator):
+def build_pipeline(
+    numeric_features: list[str],
+    categorical_features: list[str],
+    estimator,
+) -> Pipeline:
     """
     Build a sklearn Pipeline with shared preprocessing and a pluggable final estimator.
 
