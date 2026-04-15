@@ -1,85 +1,131 @@
-# BayesPilot
+# BayesPilot — Decision-Aware ML System for Customer Retention
 
-BayesPilot is a production-oriented machine learning decision-support system that demonstrates the full lifecycle of an ML service, from training and evaluation to deployment, monitoring, and model selection.
+BayesPilot is a production-style machine learning system for churn risk estimation and retention decision support.  
+It is designed to show how an ML model moves from training to operational use, where predictions are translated into actions, logged, and evaluated against business context.
 
-The project is structured to emphasize reproducibility, consistent preprocessing, model comparison, and decision-aware inference.
+## Business Problem
 
----
+Customer churn prediction is useful only when it informs retention action.  
+In practice, teams must decide who to contact, when to intervene, and how to prioritize limited retention capacity.
 
-## Overview
+BayesPilot frames this as a decision-support problem:
+- estimate churn probability for each customer
+- map probability to a retention action tier
+- keep the pipeline reproducible and measurable
+- monitor serving behavior in production-style API flow
 
-BayesPilot is designed as an end-to-end system with the following capabilities:
+## Stage 1 (Baseline System)
 
-- reproducible training pipelines
-- unified preprocessing for training and inference
-- experiment tracking using MLflow
-- multi-model comparison and selection
-- probability calibration and threshold tuning
-- API-based real-time inference
-- logging and monitoring for predictions and latency
+Stage 1 establishes a reliable baseline:
+- a single `scikit-learn` pipeline combines preprocessing and logistic regression
+- training is config-driven and tracked in MLflow
+- one serialized artifact (`churn_pipeline.pkl`) is produced for consistent inference
 
-The system evolves across stages:
+Run:
 
-- **Stage 1**: baseline pipeline and reproducible training
-- **Stage 2**: multi-model experimentation, calibration, and deployment selection
+```bash
+python -m training.train
+```
 
----
+Primary output:
+- `models/artifacts/churn_pipeline.pkl`
 
-## Project Structure
+## Stage 2 (Model Selection System)
+
+Stage 2 upgrades the baseline into a structured model selection workflow:
+- trains multiple candidate models under shared preprocessing
+- evaluates and compares models with common metrics
+- calibrates probabilities
+- runs threshold evaluation
+- selects and stores a deployment artifact
+
+Candidate models:
+- logistic regression
+- random forest
+- gradient boosting
+
+Run:
+
+```bash
+python -m training.train_stage2
+```
+
+Primary outputs:
+- per-model artifacts in `models/artifacts/`
+- selected deployment artifact: `models/artifacts/deployed_pipeline.pkl`
+- comparison/evaluation outputs in `reports/stage2/`
+
+## Architecture Overview
+
+BayesPilot follows a modular training-to-serving architecture:
+
+1. Data generation and configuration
+2. Training pipeline (`training/`)
+3. Experiment tracking (MLflow)
+4. Model artifacts (`models/artifacts/`)
+5. Deployment API (`app/api/main.py`)
+6. Decision logic (`app/services/decision.py`)
+7. Monitoring and logs (`app/monitoring/`, `logs/predictions.jsonl`)
+
+Inference flow:
 
 ```text
-bayespilot/
-├── app/
-│   ├── api/
-│   │   └── main.py
-│   ├── monitoring/
-│   │   ├── latency.py
-│   │   └── prediction_logger.py
-│   └── services/
-│       └── decision.py
-│
-├── configs/
-│   ├── training_config.yaml
-│   └── stage2_model_config.yaml
-│
-├── datasets/
-│   └── churn.csv
-│
-├── models/
-│   └── artifacts/
-│       ├── churn_pipeline.pkl
-│       ├── logistic_regression_pipeline.pkl
-│       ├── random_forest_pipeline.pkl
-│       ├── gradient_boosting_pipeline.pkl
-│       └── deployed_pipeline.pkl
-│
-├── reports/
-│   └── stage2/
-│       ├── metrics_summary.csv
-│       ├── model_comparison.csv
-│       ├── threshold_summary.csv
-│       ├── selected_model.json
-│       └── figures/
-│
-├── training/
-│   ├── pipeline.py
-│   ├── evaluate.py
-│   ├── registry.py
-│   ├── calibration.py
-│   ├── thresholds.py
-│   ├── compare.py
-│   ├── train.py
-│   └── train_stage2.py
-│
-├── tests/
-├── scripts/
-├── logs/
-└── requirements.txt
-````
+Request payload
+-> deployed pipeline (preprocessing + model)
+-> churn probability
+-> decision tier
+-> logged prediction and latency
+-> API response
+```
 
----
+## Decision Layer (Why it matters)
 
-## Setup
+A probability alone is not an operational decision.  
+BayesPilot includes a decision layer that converts model output into action categories (for example, monitor vs review vs escalate).
+
+This matters because it:
+- makes model output actionable for retention teams
+- creates a transparent policy surface that can be tested and revised
+- supports alignment between ML performance and operational constraints
+
+Current implementation uses fixed thresholds in `app/services/decision.py`.
+
+## Monitoring and Evaluation
+
+The system includes lightweight production-oriented monitoring:
+- prediction logging to `logs/predictions.jsonl`
+- latency tracking in the serving layer
+
+Evaluation and reporting include:
+- per-model metrics and comparison files in `reports/stage2/`
+- selection record in `reports/stage2/selected_model.json`
+
+## What makes this a senior-level project
+
+BayesPilot goes beyond a notebook-style model demo by emphasizing:
+- reproducible pipelines and artifact discipline
+- controlled model comparison and deployment selection
+- calibration and threshold analysis, not raw accuracy only
+- explicit decision layer between prediction and action
+- API serving with monitoring and test coverage
+- clean modular boundaries across training, serving, and operations
+
+## Current limitations and next steps
+
+Current limitations:
+- decision policy is threshold-based rather than explicit expected-value optimization
+- monitoring is foundational and does not yet include drift or outcome feedback loops
+- interpretability outputs are limited to current reporting artifacts
+
+Practical next steps:
+- introduce expected-value decision logic with business cost/benefit parameters
+- add business-aware evaluation metrics for retention impact
+- expand interpretability reporting for deployment decisions
+- strengthen monitoring with risk signals, drift checks, and closed-loop outcomes
+
+## Quick Start
+
+Setup:
 
 ```bash
 python -m venv venv_bayespilot
@@ -87,297 +133,20 @@ source venv_bayespilot/bin/activate
 pip install -r requirements.txt
 ```
 
----
-
-## Data
-
-Synthetic churn data is generated using:
+Generate synthetic dataset:
 
 ```bash
 python scripts/generate_churn_data.py
 ```
 
-Dataset location:
-
-```text
-datasets/churn.csv
-```
-
-Features:
-
-* usage
-* bill
-* support_calls
-* region (categorical)
-
-Target:
-
-* churn (binary)
-
----
-
-## Stage 1 — Baseline Training Pipeline
-
-Stage 1 establishes a reproducible training pipeline with unified preprocessing.
-
-```bash
-python -m training.train
-```
-
-### Key Characteristics
-
-* preprocessing and model are combined in a single sklearn pipeline
-* no duplication between training and inference
-* artifact contains both preprocessing and model
-* MLflow tracks parameters, metrics, and artifacts
-
-### Outputs
-
-* Config: `configs/training_config.yaml`
-* Artifact: `models/artifacts/churn_pipeline.pkl`
-* MLflow experiment: `BayesPilot-Stage1`
-
----
-
-## Stage 2 — Experimentation and Model Selection
-
-Stage 2 extends the system to support multiple candidate models under a shared training and evaluation framework.
-
-```bash
-python -m training.train_stage2
-```
-
-### Objectives
-
-* train multiple models with identical preprocessing
-* evaluate models using consistent metrics
-* calibrate predicted probabilities
-* perform threshold sweeps for decision tuning
-* compare models and select a deployment candidate
-
-### Candidate Models
-
-* logistic regression
-* random forest
-* gradient boosting
-
-### Outputs
-
-* Per-model artifacts:
-
-  ```text
-  models/artifacts/{logistic_regression,random_forest,gradient_boosting}_pipeline.pkl
-  ```
-
-* Selected deployment artifact:
-
-  ```text
-  models/artifacts/deployed_pipeline.pkl
-  ```
-
-* Reports:
-
-  ```text
-  reports/stage2/
-  ├── metrics_summary.csv
-  ├── model_comparison.csv
-  ├── threshold_summary.csv
-  ├── selected_model.json
-  └── figures/*.png
-  ```
-
-* MLflow experiment:
-
-  ```text
-  BayesPilot-Stage2
-  ```
-
----
-
-## Model Selection and Decision Criteria
-
-The deployed model is selected based on:
-
-* predictive performance (AUC, F1)
-* probability quality after calibration
-* inference latency
-* interpretability considerations
-
-The final selection and justification are recorded in:
-
-```text
-reports/stage2/selected_model.json
-```
-
----
-
-## API
-
-The API serves predictions using the selected deployed model artifact.
+Run API:
 
 ```bash
 uvicorn app.api.main:app --reload
 ```
 
-### Model Loading
-
-The API loads:
-
-```text
-models/artifacts/deployed_pipeline.pkl
-```
-
-Alternatively, override via environment variable:
-
-```bash
-export BAYESPILOT_MODEL_PATH=...
-```
-
-### Example Request
-
-```json
-{
-  "usage": 200,
-  "bill": 120,
-  "support_calls": 3,
-  "region": "east"
-}
-```
-
-### Inference Flow
-
-```text
-JSON input
-→ pandas DataFrame
-→ sklearn pipeline (preprocessing + model)
-→ predict_proba
-→ decision logic
-→ response
-```
-
-No manual feature engineering is performed inside the API.
-
----
-
-## Decision Layer
-
-Decision logic is defined in:
-
-```text
-app/services/decision.py
-```
-
-Mapping:
-
-```text
-probability < 0.3      → low_risk_monitor
-0.3 ≤ probability < 0.7 → medium_risk_review
-probability ≥ 0.7      → high_risk_escalate
-```
-
-This converts model outputs into actionable categories.
-
----
-
-## Monitoring
-
-Each prediction is logged to:
-
-```text
-logs/predictions.jsonl
-```
-
-Logged fields include:
-
-* timestamp
-* input payload
-* predicted probability
-* decision
-* latency
-
-This provides a basic foundation for observability and auditing.
-
----
-
-## Testing
-
-Run all tests:
+Run tests:
 
 ```bash
 pytest
 ```
-
-Key test areas:
-
-* pipeline artifact loading and inference
-* decision logic correctness
-* API endpoint functionality
-* model registry and threshold utilities
-
-`tests/test_pipeline.py` prioritizes `deployed_pipeline.pkl` if available.
-
----
-
-## MLflow Tracking
-
-MLflow is used for experiment tracking in both stages.
-
-To view experiments:
-
-```bash
-mlflow ui
-```
-
-Tracked information includes:
-
-* model parameters
-* evaluation metrics
-* saved artifacts
-* per-model experiment runs
-
----
-
-## Legacy Training Script
-
-```bash
-python experiments/old_train_baseline.py
-```
-
-This script is deprecated and redirects to the Stage 1 training pipeline.
-
----
-
-## Optional: Streamlit Interface
-
-```bash
-streamlit run app/streamlit_app.py
-```
-
-Provides a simple UI for interacting with the prediction service.
-
----
-
-## Design Principles
-
-BayesPilot is built around the following principles:
-
-* **reproducibility**: config-driven training and MLflow tracking
-* **consistency**: identical preprocessing for training and inference
-* **modularity**: clear separation between training, serving, and monitoring
-* **comparability**: shared evaluation framework across models
-* **decision-awareness**: predictions are converted into actionable outcomes
-* **traceability**: all experiments and artifacts are logged and reproducible
-
----
-
-## Summary
-
-BayesPilot demonstrates how to move from a single-model pipeline to a structured ML system that supports:
-
-* controlled experimentation
-* model selection based on evidence
-* consistent deployment artifacts
-* real-time inference with decision logic
-* monitoring and logging for operational visibility
-
-This progression reflects a realistic transition from prototype ML workflows to production-oriented systems.
